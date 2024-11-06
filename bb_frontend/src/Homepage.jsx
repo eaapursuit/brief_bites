@@ -1,12 +1,10 @@
-import { useState, useEffect } from "react";
-import Sections from "./components/Sections";
-import { Link } from "react-router-dom";
+import Section from "./components/Section";
 
-function Homepage ({ sections }) {
+function Homepage () {
     return (
         <div>
-            <h1>HomePage</h1>
-            <Sections sections={sections} />
+            <h1>Latest News</h1>
+            <Section />
         </div>
     )
 }

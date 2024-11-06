@@ -1,78 +1,103 @@
-import { useState, useEffect, createContext } from "react";
-import { Link, useParams, useNavigate } from "react-router-dom";
-import { getNYTArticles } from "./fetch";
+import { useState, useEffect } from "react";
+import { Link } from "react-router-dom";
 import {
   NavigationMenu,
   NavigationMenuList,
   NavigationMenuItem,
-  NavigationMenuContent,
   NavigationMenuLink,
-  NavigationMenuTrigger,
-} from "@radix-ui/react-navigation-menu";
+} from "@components/ui/navigation-menu";
 import "./Section.css";
-import main from "./OpenAi";
 
-export const SummaryContext = createContext(null);
-
-const Section = ({ sections }) => {
-  const navigate = useNavigate();
-
-  const [summary, setSummary] = useState("");
+const Section = () => {
   const [articles, setArticles] = useState([]);
-  const { id } = useParams();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
   useEffect(() => {
-    getNYTArticles(sections[id])
-      .then((results) => {
-        setArticles(results);
+    fetch("/api/articles/latest")
+      .then((response) => {
+        if (!response.ok) throw new Error("Failed to fetch articles");
+        return response.json();
       })
-      .catch((err) => console.error(err));
+      .then((data) => {
+        setArticles(data.articles);
+        setLoading(false);
+      })
+      .catch((err) => {
+        setError(err.message);
+        setLoading(false);
+      });
   }, []);
 
-  const handleClick = async (articles) => {
-    const response = await main(articles)
-     setSummary(response)
+  const handleSummarize = async (articleId, summaryType) => {
+    try {
+      const response = await fetch(
+        `/api/summary/${articleId}?type=${summaryType}`
+      );
+      if (!response.ok) throw new Error("Failed to get summary");
+      const data = await response.json();
+
+      //update the article with its summary
+      setArticles(
+        articles.map((article) =>
+          article.id === articleId
+            ? { ...article, summary: data.summary }
+            : article
+        )
+      );
+    } catch (err) {
+      console.error("Error getting summary:", err);
+    }
   };
 
-  console.log(summary)
+  if (loading) return <div>Loading...</div>;
+  if (error) return <div>Error: {error}</div>;
 
   return (
-    <SummaryContext.Provider
-      value={{ summary, setSummary, articles, setArticles }}
-    > 
-    {
-            (summary) ? <div>{summary}</div> : (
-                <div>
-                  <NavigationMenu>
-                    <NavigationMenuList>
-                      <NavigationMenuItem>
-                        <NavigationMenuLink>
-                          <Link className="home-link" to={"/"}>
-                            Home
-                          </Link>
-                        </NavigationMenuLink>
-                      </NavigationMenuItem>
-                    </NavigationMenuList>
-                  </NavigationMenu>
-                  <h1>{sections[id]}</h1>
-                  {articles.length > 0 &&
-                    articles.map((article) => (
-                      <li key={article.slug_name}>
-                        <Link to={article.url} target="_blank">
-                          {article.title}
-                        </Link>
-                        <p>{article.abstract}</p>
-                        <button onClick={() => handleClick(article)}>
-                          Summarize for 8th Graders + Below
-                        </button>
-                        <button>Summarize for High Schoolers</button>
-                        <button>Summarize for Adults</button>
-                      </li>
-                    ))}
-                </div>
-                )  
-    }
+    <div>
+      <NavigationMenu>
+        <NavigationMenuList>
+          <NavigationMenuItem>
+            <NavigationMenuLink>
+              <Link className="home-link" to="/">
+                Home
+              </Link>
+            </NavigationMenuLink>
+          </NavigationMenuItem>
+        </NavigationMenuList>
+      </NavigationMenu>
 
-    </SummaryContext.Provider>
+      <div className="articles-grid">
+        {articles.map((article) => (
+          <div key={article.id} className="article-card">
+            <h2>{article.title}</h2>
+            <p>{article.article_description}</p>
+            {!article.summary && (
+            <div className="summary-buttons">
+              <button onClick={() => handleSummarize(article.id, 8)}>
+              Summarize for 8th Graders
+              </button>
+              <button onClick={() => handleSummarize(article.id, 12)}>
+              Summarize for High Schoolers
+              </button>
+              <button onClick={() => handleSummarize(article.id, 13)}>
+              Summarize for Adults
+              </button>
+            </div>  
+            )}
+            { article.summary && (
+              <div className="summary">
+                <h3>Summary</h3>
+                <p>{article.summary}</p>
+              </div>
+            )}
+            <a href={article.url} target="_blank" rel="noopener noreferrer">
+              Read full article
+            </a>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 };
 
