@@ -1,107 +1,183 @@
-const express = require('express');
+const express = require("express");
 const article = express.Router();
-const db = require('../db/dbConfig');
-const fetch = require('node-fetch')
-const NodeCache = require('node-cache');
+const db = require("../db/dbConfig");
+const fetch = require("node-fetch");
+const NodeCache = require("node-cache");
 
 const cache = new NodeCache({ stdTTL: 300 });
-
-
-require('dotenv').config();
+require("dotenv").config();
 const API_KEY = process.env.VITE_CURRENTS_API_KEY;
-const CACHE_KEY = 'latest-news';
 
-// fetches latest news from CurrentsAPI
+// Fetches latest news from Currents API
+article.get("/latest", async (req, res) => {
+  try {
+    if (!API_KEY) {
+      return res
+        .status(500)
+        .json({ error: "API key is missing in environment variables" });
+    }
 
-article.get('/latest', async (req, res) => {
-    try {
-        //Checks cache first
-        const cachedData = cache.get(CACHE_KEY);
-        if(cachedData) {
-            console.log('Serving from cache');
-            return res.status(200).json(cachedData);
-        }
-        
-    const url = 'https://api.currentapi.services/v1/latest-news?'+'language=us&'+ `apiKey=${API_KEY}`;
-   
+    const CACHE_KEY = "latestNewsArticles";
+    const cachedData = cache.get(CACHE_KEY);
+
+    if (cachedData) {
+      console.log("Serving latest news from cache");
+      return res.status(200).json(cachedData);
+    }
+
+    const url = `https://api.currentapi.services/v1/latest-news?language=us&apiKey=${API_KEY}`;
     const response = await fetch(url);
 
-    if(!response.ok) {
-        switch (response.status) {
-            case 401:
-                throw new Error('Invalid API key');
-            case 429:
-                throw new Error('Rate limit exceeded');
-            case 500:
-                throw new Error('CurrentsAPI server error');
-            default:
-                throw new Error(`HTTP error! status: ${response.status}`)
-        }
+    if (!response.ok) {
+      const errorMessage = `API response error: ${response.status}`;
+      console.error(errorMessage);
+      return res.status(response.status).json({ error: errorMessage });
     }
 
     const data = await response.json();
-
     const processedData = {
-        articles: data.news.map(article => ({
-            title: article.title,
-            description: article.description,
-            url: article.url,
-            author: article.author,
-            category: article.category,
-            published: article.published,
-        })).filter(article => article.title && article.description && article.description.length > 50
-
+      articles: data.news
+        .filter(
+          (article) =>
+            article.title &&
+            article.article_description &&
+            article.article_description.length > 50
         )
+        .map((article) => ({
+          title: article.title,
+          description: article.article_description,
+          url: article.article_url,
+          author: article.author,
+          category: article.category,
+          published: article.published,
+        })),
     };
 
-    //store it in cache
-    cache.set(CACHE_KEY, processedData);
+    try {
+      cache.set(CACHE_KEY, processedData);
+    } catch (cacheError) {
+      console.error("Cache set error:", cacheError.message);
+    }
 
     res.status(200).json(processedData);
-} catch (err) {
-    console.error('Error fetching news:', err.message);
+  } catch (err) {
+    console.error("Error fetching latest news:", err.message);
+    res
+      .status(500)
+      .json({ error: "Error fetching latest news. Please try again later" });
+  }
+});
 
-    if(err.message === 'Invalid API key') {
-        return res.status(401).json({ error: 'Authentication failed' });
-    }
-    if(err.message === 'Rate limit exceeded'){
-        return res.status(429).json({ error: 'Too many requests' });
-    }
+article.post("/", async (req, res) => {
+  const { title, article_description, summary_type } = req.body;
 
-    res.status(500).json({ error: 'Error fetching latest news' });
-}
-    
+  if (!title || !article_description || typeof summary_type !== "number") {
+    return res.status(400).json({
+      error: "Title, article description, and summary type are required",
+    });
+  }
+
+  try {
+    const newArticle = await db.one(
+      "INSERT INTO articles (title, article_description, summary_type) VALUES ($1, $2, $3) RETURNING *",
+      [title, article_description, summary_type]
+    );
+    res.status(201).json(newArticle);
+  } catch (err) {
+    console.error("Database error creating article:", err.message);
+    res
+      .status(500)
+      .json({ error: "Internal server error while creating article" });
+  }
 });
 
 // get a specific article from DB by ID
-article.get('/:id/', async (req, res) => {
-    const { id } = req.params;
-    const numId = Number(id);
+article.get("/:id", async (req, res) => {
+  const { id } = req.params;
 
-    await db.one('SELECT * FROM articles WHERE id = $1', [numId])
-    .then(data => {
-        console.log(data);
-        res.status(200).json(data);
-    })
-    .catch(err => {
-        console.error(err);
-        res.status(500).json({ error: 'Error getting article' });
-    });
+  if (isNaN(Number(id))) {
+    return res.status(400).json({ error: "Invalid article ID" });
+  }
+
+  try {
+    const article = await db.one("SELECT * FROM articles WHERE id = $1", [id]);
+    res.status(200).json(article);
+  } catch (err) {
+    if (err.code === "NO_DATA") {
+      res.status(404).json({ error: "Article not found" });
+    } else {
+      console.error("Database error fetching article:", err.message);
+      res
+        .status(500)
+        .json({ error: "Internal server error while fetching article" });
+    }
+  }
 });
 
-// create a new article in the database
-article.post('/', async (req, res) => {
-    const article = req.body;
+// update an existing article by ID
+article.put("/:id", async (req, res) => {
+  const { id } = req.params;
+  const { title, article_description, summary_type } = req.body;
 
-    await db.one('INSERT INTO articles (title, abstract, summary_type) VALUES ($1, $2, $3) RETURNING *', [article.title, article.abstract, article.summaryType])
-   .then(data => {
-        console.log('Added an article');
-        res.status(201).json(data);
-    })
-    .catch(err => {
-        console.error(err);
-        res.status(500).json({ error: 'Error creating article' });
-    });
-})
+  if (isNaN(Number(id))) {
+    return res.status(400).json({ error: "Invalid article ID" });
+  }
+
+  // Validate summary_type only if provided in request body
+  if (summary_type !== undefined && typeof summary_type !== "number") {
+    return res.status(400).json({ error: "Summary type must be a number" });
+  }
+
+  if (!title && !article_description && summary_type === undefined) {
+    return res
+      .status(400)
+      .json({ error: "At least one field must be updated" });
+  }
+
+  try {
+    const updatedArticle = await db.one(
+      `UPDATE articles
+         SET title = COALESCE($1, title),
+             article_description = COALESCE($2, article_description),
+             summary_type = COALESCE($3, summary_type),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $4
+         RETURNING *`,
+      [title, article_description, summary_type, id]
+    );
+    res.status(200).json(updatedArticle);
+  } catch (err) {
+    if (err.code === "NO_DATA") {
+      res.status(404).json({ error: "Article not found" });
+    } else {
+      console.error("Database error updating article:", err.message);
+      res
+        .status(500)
+        .json({ error: "Internal server error while updating article" });
+    }
+  }
+});
+
+// delete an article by ID
+article.delete("/:id", async (req, res) => {
+  const { id } = req.params;
+
+  if (isNaN(Number(id))) {
+    return res.status(400).json({ error: "Invalid article ID" });
+  }
+
+  try {
+    const result = await db.result("DELETE FROM articles WHERE id = $1", [id]);
+    if (result.rowCount === 0) {
+      return res.status(404).json({ error: "Article not found" });
+    }
+    res.status(204).json({ message: "Article deleted successfully" });
+  } catch (err) {
+    console.error("Database error deleting article:", err.message);
+    res
+      .status(500)
+      .json({ error: "Internal server error while deleting article" });
+  }
+});
 
 module.exports = article;

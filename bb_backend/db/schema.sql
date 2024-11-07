@@ -5,8 +5,6 @@ DROP DATABASE IF EXISTS news;
 
 CREATE DATABASE news;
 
-\c news
-
 DROP TABLE IF EXISTS articles;
 
 CREATE TABLE articles (
