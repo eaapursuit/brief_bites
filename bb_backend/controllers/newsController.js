@@ -77,7 +77,7 @@ const newsController = {
           }
         ).then(async (res) => {
             if (!res.ok) {
-                throw new Error(`Failed to fetch ${type} with status" ${res.status}`);
+                throw new Error(`Failed to fetch ${type} with status: ${res.status}`);
             }
             return res.json();
         })
