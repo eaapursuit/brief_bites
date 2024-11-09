@@ -41,7 +41,7 @@ function SearchNews() {
     const fetchFilterOptions = async () => {
       setLoadingFilters(true);
       try {
-        const response = await fetch("/api/news/filter-options");
+        const response = await fetch("/api/newsSearches/filters");
         if (!response.ok) throw new Error("Failed to fetch filter options");
         const data = await response.json();
         setFilterOptions(data);
@@ -70,7 +70,7 @@ function SearchNews() {
           page_size: pageSize,
           ...Object.fromEntries(
             Object.entries(selectedFilters).filter(
-              ([__dirname, value]) => value !== null && value !== ""
+              ([key, value]) => value !== null && value !== ""
             )
           ),
         });
@@ -232,14 +232,14 @@ function SearchNews() {
                   {/* Date Range Filters */}
                   <div className="date-filters">
                     <DatePicker
+                      key="start-date"
                       selected={selectedFilters.start_date}
-                      onChange={(date) =>
-                        handleFilterChange("start_date", date)
-                      }
+                      onChange={(date) => handleFilterChange("start_date", date)}
                       placeholderText="Start Date"
                       maxDate={selectedFilters.end_date || new Date()}
                     />
                     <DatePicker
+                    key="end_date"
                       selected={selectedFilters.end_date}
                       onChange={(date) => handleFilterChange("end_date", date)}
                       placeholderText="End Date"
@@ -273,6 +273,13 @@ function SearchNews() {
         )}
       </form>
 
+      {totalPages > 1 && (
+        <div className='pagination-info'>
+          Page {currentPage} of {totalPages}
+        </div>
+      )}
+
+
       {/* {Results} */}
       <div className="news-results">
         {news.map((article) => (
@@ -286,6 +293,12 @@ function SearchNews() {
             </a>
           </div>
         ))}
+
+        {currentPage < totalPages && (
+          <button onClick={loadMore} disabled={loadMore}>
+            {loadingMore ? "Loading..." : "Load More"}
+          </button>
+        )}
       </div>
     </div>
   );
