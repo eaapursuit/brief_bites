@@ -40,18 +40,45 @@ function SearchNews() {
   useEffect(() => {
     const fetchFilterOptions = async () => {
       setLoadingFilters(true);
+      
       try {
         const response = await fetch("/api/newsSearches/filters");
-        if (!response.ok) throw new Error("Failed to fetch filter options");
-        const data = await response.json();
-        setFilterOptions(data);
+        console.log("Response status:", response.status);
+        const contentType = response.headers.get("content-type");
+        console.log("Content-Type:", contentType)
+
+        if (!response.ok) {
+          throw new Error(`Server responded with status: ${response.status}`);
+        }
+        
+        const rawText = await response.text();
+        console.log("Raw response:", rawText);
+
+        let data;
+        try {
+          data = JSON.parse(rawText);
+        } catch (parseError) {
+          console.error("Failed to parse JSON:", parseError);
+          throw new Error("Invalid JSON response from server");
+        }
+
+        if(!data || typeof data !== 'object'){
+          throw new Error("Invalid data structure received");
+        }
+
+        setFilterOptions({
+          categories: Array.isArray(data.categories) ? data.categories : [],
+          regions: Array.isArray(data.regions) ? data.regions : [],
+          languages: Array.isArray(data.languages) ? data.languages : [],
+        });
       } catch (error) {
+        console.error("Full error details:", error);
         setError("Failed to load filter options: " + error.message);
       } finally {
         setLoadingFilters(false);
       }
     };
-
+    
     fetchFilterOptions();
   }, []);
 
@@ -104,9 +131,22 @@ function SearchNews() {
   );
 
   //Handle search submission
-  const handleSearch = (e) => {
+  const handleSearch = async (e) => {
     e.preventDefault();
-    fetchNews(1, true); //Reset results on new search
+    setLoading(true);
+    setError(null);
+    setCurrentPage(1);  // Reset to the first page
+    try {
+      const response = await fetch(`/api/newsSearches/search?q=${searchTerm}&page=${1}&pageSize=${pageSize}`);
+      if (!response.ok) throw new Error("Failed to fetch news");
+      const data = await response.json();
+      setNews(data.news); // Assuming API returns news array in `data.news`
+      setTotalPages(data.totalPages || 0); // Set total pages if available
+    } catch (error) {
+      setError("Failed to fetch news: " + error.message);
+    } finally {
+      setLoading(false);
+    }
   };
 
   //Handle filter changes
@@ -136,9 +176,19 @@ function SearchNews() {
   };
 
   //Load more results
-  const loadMore = () => {
-    if (currentPage < totalPages) {
-      fetchNews(currentPage + 1, false);
+  const loadMore = async () => {
+    if (currentPage >= totalPages) return; // Don't load more if already at last page
+    setLoadingMore(true);
+    try {
+      const response = await fetch(`/api/newsSearches/search?q=${searchTerm}&page=${currentPage + 1}&pageSize=${pageSize}`);
+      if (!response.ok) throw new Error("Failed to fetch more news");
+      const data = await response.json();
+      setNews((prevNews) => [...prevNews, ...data.news]); // Append new results
+      setCurrentPage((prevPage) => prevPage + 1); // Move to next page
+    } catch (error) {
+      setError("Failed to fetch more news: " + error.message);
+    } finally {
+      setLoadingMore(false);
     }
   };
 
@@ -150,7 +200,7 @@ function SearchNews() {
           <button onClick={() => setError(null)}>Dismiss</button>
         </div>
       )}
-      <form onSubmit={handleSearch}>
+      <form onSubmit={handleSearch} id="filter-form">
         <div className="search-container">
           <input
             type="text"
